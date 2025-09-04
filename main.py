@@ -1,50 +1,45 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.calculations import router as calc_router
-from api.data_endpoints import router as data_router
-import uvicorn
+from pydantic import BaseModel
+from typing import List
 import os
 
-# Create FastAPI instance
-app = FastAPI(
-    title="Freight Calculator API",
-    description="Backend API for freight forwarding calculations",
-    version="1.0.0"
-)
+app = FastAPI(title="Freight Calculator API", version="1.0.0")
 
-# CORS middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://*.vercel.app",
-        "http://localhost:3000",
-        "http://localhost:3001"
-    ],
+    allow_origins=["*"],  # Configure properly for production
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(calc_router, prefix="/api/calculations", tags=["calculations"])
-app.include_router(data_router, prefix="/api/data", tags=["data"])
+class ChargeableWeightRequest(BaseModel):
+    length: float
+    width: float
+    height: float
+    actual_weight: float
+    pieces: int = 1
 
 @app.get("/")
 def read_root():
+    return {"message": "Freight Calculator API is running"}
+
+@app.post("/api/calculations/chargeable-weight")
+def calculate_chargeable_weight(request: ChargeableWeightRequest):
+    # Simple calculation without numpy
+    volumetric_weight = (request.length * request.width * request.height * request.pieces) / 6000
+    chargeable_weight = max(request.actual_weight * request.pieces, volumetric_weight)
+    cbm = (request.length * request.width * request.height * request.pieces) / 1000000
+    
     return {
-        "message": "Freight Calculator API is running",
-        "version": "1.0.0",
-        "endpoints": {
-            "calculations": "/api/calculations",
-            "data": "/api/data",
-            "docs": "/docs"
-        }
+        "actual_weight": request.actual_weight * request.pieces,
+        "volumetric_weight": volumetric_weight,
+        "chargeable_weight": chargeable_weight,
+        "cbm": cbm
     }
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "service": "freight-calculator-api"}
-
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=port)

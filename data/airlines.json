@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "code": "001 AA",
+    "name": "American Airlines",
+    "url": "https://www.aacargo.com/AACargo/tracking",
+    "region": "North America"
+  },
+  {
+    "id": 2,
+    "code": "020 LH",
+    "name": "Lufthansa Cargo",
+    "url": "https://www.lufthansa-cargo.com/en/eservices/etracking",
+    "region": "Europe"
+  }
+]

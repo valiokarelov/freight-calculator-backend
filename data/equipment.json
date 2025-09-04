@@ -1,0 +1,24 @@
+{
+  "containers": [
+    {
+      "name": "20ft DV",
+      "fullName": "20ft Dry Van Container",
+      "type": "Sea Container",
+      "dimensions": {
+        "length": 590,
+        "width": 234,
+        "height": 239
+      },
+      "payload": 25000,
+      "tare": 2300
+    }
+  ],
+  "aircraft": [
+    {
+      "name": "B747-400F",
+      "type": "Freighter Aircraft",
+      "payload": 140000,
+      "volume": 858
+    }
+  ]
+}
