@@ -4,6 +4,9 @@ from pydantic import BaseModel
 from typing import List
 import os
 
+# Import your calculations router
+from api.calculations import router as calculations_router
+
 app = FastAPI(title="Freight Calculator API", version="1.0.0")
 
 app.add_middleware(
@@ -13,6 +16,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include the calculations router
+app.include_router(calculations_router, prefix="/api/calculations")
 
 class ChargeableWeightRequest(BaseModel):
     length: float
@@ -42,4 +48,4 @@ def calculate_chargeable_weight(request: ChargeableWeightRequest):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
