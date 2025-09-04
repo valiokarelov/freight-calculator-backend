@@ -1,8 +1,8 @@
-import numpy as np
+#import numpy as np
 from typing import List
 from api.models import CargoItem, Container, PlacedItem, Position
 
-def simple_bin_packing(items: List[CargoItem], container: Container) -> List[PlacedItem]:
+def simple_bin_packing(items, container):
     """
     Simple first-fit bin packing algorithm
     This is a basic implementation - can be enhanced with more sophisticated algorithms
