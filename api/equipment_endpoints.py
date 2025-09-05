@@ -1,7 +1,7 @@
 # Phase 2 - Equipment Management API Endpoints
 # File: backend/api/equipment_endpoints.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -9,6 +9,20 @@ from api.database import get_db
 from api.database_models import EquipmentCatalog, CargoItemTemplate, SavedOptimization
 import json
 from datetime import datetime
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import os
+
+security = HTTPBearer()
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    # Get API key from environment variable
+    expected_key = os.environ.get("API_KEY", "your-fallback-secret-key")
+    if credentials.credentials != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
 
@@ -126,8 +140,10 @@ async def get_equipment_by_code(type_code: str, db: Session = Depends(get_db)):
 @router.post("/containers", response_model=EquipmentResponse)
 async def create_custom_equipment(
     equipment_data: EquipmentCreate, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
 ):
+    
     """Create custom equipment/container"""
     
     # Check if type_code already exists
@@ -140,7 +156,7 @@ async def create_custom_equipment(
     
     # Create equipment
     equipment = EquipmentCatalog(
-        **equipment_data.dict(),
+        **equipment_data.model_dump(),
         volume_cubic_cm=volume,
         is_preset=False,
         is_active=True
@@ -156,7 +172,8 @@ async def create_custom_equipment(
 async def update_equipment(
     equipment_id: int,
     equipment_data: EquipmentBase,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
 ):
     """Update equipment (only custom equipment can be modified)"""
     equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == equipment_id).first()
@@ -167,7 +184,7 @@ async def update_equipment(
         raise HTTPException(status_code=400, detail="Cannot modify preset equipment")
     
     # Update fields
-    for field, value in equipment_data.dict(exclude_unset=True).items():
+    for field, value in equipment_data.model_dump()(exclude_unset=True).items():
         setattr(equipment, field, value)
     
     # Recalculate volume
@@ -180,7 +197,11 @@ async def update_equipment(
     return EquipmentResponse.model_validate(equipment)
 
 @router.delete("/containers/{equipment_id}")
-async def delete_equipment(equipment_id: int, db: Session = Depends(get_db)):
+async def delete_equipment(
+    equipment_id: int, 
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)  # Add this line
+):
     """Delete custom equipment (soft delete by setting inactive)"""
     equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == equipment_id).first()
     if not equipment:
@@ -282,7 +303,7 @@ async def save_layout(layout_data: SavedLayoutCreate, db: Session = Depends(get_
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON data")
     
-    layout = SavedOptimization(**layout_data.dict())
+    layout = SavedOptimization(**layout_data.model_dump()())
     
     db.add(layout)
     db.commit()
