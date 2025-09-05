@@ -6,6 +6,8 @@ import os
 
 # Import your calculations router
 from api.calculations import router as calculations_router
+# Add this line to import the equipment router
+from api.equipment_endpoints import router as equipment_router
 
 app = FastAPI(title="Freight Calculator API", version="1.0.0")
 
@@ -19,6 +21,8 @@ app.add_middleware(
 
 # Include the calculations router
 app.include_router(calculations_router, prefix="/api/calculations")
+# Add this line to include the equipment router
+app.include_router(equipment_router)
 
 class ChargeableWeightRequest(BaseModel):
     length: float
