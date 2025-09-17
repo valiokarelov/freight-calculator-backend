@@ -47,6 +47,55 @@ def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
 
+# ==================== DEBUG ENDPOINT ====================
+
+@router.post("/debug-packing")
+async def debug_packing(request: BinPackingRequest):
+    """
+    Debug endpoint to check data flow and units
+    """
+    print("=== DEBUG ENDPOINT ===")
+    print(f"Container: {request.container}")
+    print(f"Items received: {len(request.items)}")
+    
+    for i, item in enumerate(request.items):
+        print(f"Item {i}: {item}")
+    
+    # Convert to Container3D format
+    container = Container3D(
+        length=request.container.length,
+        width=request.container.width,
+        height=request.container.height,
+        max_weight=request.container.max_weight or 50000
+    )
+    
+    # Convert BinPackingItem to CargoItem3D
+    cargo_items = []
+    for item in request.items:
+        cargo_item = CargoItem3D(
+            id=item.id,
+            name=item.name,
+            length=item.length,
+            width=item.width,
+            height=item.height,
+            weight=item.weight,
+            quantity=item.quantity,
+            non_stackable=item.non_stackable or False,
+            non_rotatable=item.non_rotatable or False
+        )
+        cargo_items.append(cargo_item)
+        print(f"Converted cargo item: {cargo_item}")
+    
+    print(f"Container3D: {container}")
+    print("=== END DEBUG ===")
+    
+    return {
+        "message": "Debug complete, check console logs",
+        "container_received": request.container.model_dump(),
+        "items_count": len(request.items),
+        "first_item": request.items[0].model_dump() if request.items else None
+    }
+
 # ==================== OPTIMIZED BIN PACKING ENDPOINTS ====================
 
 @router.post("/3d-bin-packing-optimized", response_model=BinPackingResponse)
