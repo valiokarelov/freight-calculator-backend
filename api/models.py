@@ -1,11 +1,87 @@
-# File: backend/api/models.py
-# Complete Pydantic Models (Core + Equipment)
-
+# File: api/models.py
 from pydantic import BaseModel, Field
 from typing import List, Optional, Union, Dict, Any
 from datetime import datetime
 
-# ==================== CORE MODELS (Your existing models) ====================
+# ==================== BIN PACKING MODELS ====================
+
+class CargoItem3D(BaseModel):
+    id: str
+    name: str
+    length: float  # cm
+    width: float   # cm
+    height: float  # cm
+    weight: float  # kg
+    quantity: int = 1
+    non_stackable: bool = False
+    non_rotatable: bool = False
+
+class Container3D(BaseModel):
+    length: float  # cm
+    width: float   # cm
+    height: float  # cm
+    max_weight: float = 50000  # kg
+
+class PlacedItem3D(CargoItem3D):
+    x: float
+    y: float
+    z: float
+    fitted: bool
+    rotated: bool = False
+
+class Container(BaseModel):
+    length: float
+    width: float
+    height: float
+    max_weight: Optional[float] = 50000
+
+class BinPackingItem(BaseModel):
+    id: str
+    name: str
+    length: float
+    width: float
+    height: float
+    weight: float
+    quantity: int = 1
+    non_stackable: Optional[bool] = False
+    non_rotatable: Optional[bool] = False
+
+class PlacedItem(BaseModel):
+    id: str
+    name: str
+    length: float
+    width: float
+    height: float
+    weight: float
+    x: float
+    y: float
+    z: float
+    fitted: bool
+    non_stackable: Optional[bool] = False
+    non_rotatable: Optional[bool] = False
+
+class BinPackingRequest(BaseModel):
+    container: Container
+    items: List[BinPackingItem]
+
+class BinPackingResponse(BaseModel):
+    placed_items: List[PlacedItem]
+    total_items: int
+    fitted_items: int
+    efficiency: float
+    total_weight: float
+    fitted_weight: float
+    processing_time: Optional[float] = None
+
+class PackingRequest(BaseModel):
+    container: Container3D
+    items: List[CargoItem3D]
+
+class PackingResponse(BaseModel):
+    placed_items: List[PlacedItem3D]
+    stats: dict
+
+# ==================== CORE MODELS ====================
 
 class Dimensions(BaseModel):
     length: float = Field(..., gt=0, description="Length in cm")
@@ -21,19 +97,12 @@ class CargoItem(BaseModel):
     stackable: bool = True
     fragile: bool = False
     
-class Container(BaseModel):
-    id: str = "container-1"
-    type: str = Field(..., pattern="^(20ft|40ft|40hc|custom)$")
-    dimensions: Dimensions
-    max_weight: float = Field(..., gt=0, description="Maximum weight in kg")
-    name: str = "Standard Container"
-
 class Position(BaseModel):
     x: float
     y: float
     z: float
 
-class PlacedItem(CargoItem):
+class PlacedCargoItem(CargoItem):
     position: Position
     rotation: Optional[Position] = None
     placed: bool = False
@@ -41,7 +110,7 @@ class PlacedItem(CargoItem):
 class LoadPlan(BaseModel):
     id: str
     container: Container
-    items: List[PlacedItem]
+    items: List[PlacedCargoItem]
     utilization: dict
     timestamp: datetime
     
@@ -50,48 +119,22 @@ class OptimizationRequest(BaseModel):
     container: Container
     optimization_type: str = "volume"  # volume, weight, efficiency
 
-# Enhanced request model with equipment catalog support
 class EnhancedOptimizationRequest(BaseModel):
     cargo_items: List[CargoItem]
-    container: Optional[Container] = None  # Optional when using equipment_id
-    equipment_id: Optional[int] = None  # Use equipment from catalog instead
+    container: Optional[Container] = None
+    equipment_id: Optional[int] = None
     optimization_type: str = "volume"
     save_result: bool = False
     result_name: Optional[str] = None
 
 class OptimizationResult(BaseModel):
     load_plan: LoadPlan
-    equipment_used: Optional[dict] = None  # Equipment info if used
+    equipment_used: Optional[dict] = None
     optimization_params: dict
     performance_metrics: dict
     saved_id: Optional[int] = None
 
-# ==================== EQUIPMENT MODELS (For equipment_endpoints.py) ====================
-
-# Equipment models that your equipment_endpoints.py is trying to import
-class Equipment(BaseModel):
-    """Base equipment model that matches your database structure"""
-    id: Optional[int] = None
-    name: str
-    full_name: str
-    category: str
-    sub_category: Optional[str] = None
-    type_code: str
-    length_cm: float
-    width_cm: float
-    height_cm: float
-    original_unit: str = "in"
-    max_weight_kg: Optional[float] = None
-    description: Optional[str] = None
-    manufacturer: Optional[str] = None
-    model: Optional[str] = None
-    is_active: bool = True
-    is_preset: bool = True
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
+# ==================== EQUIPMENT MODELS ====================
 
 class EquipmentBase(BaseModel):
     name: str
@@ -121,31 +164,30 @@ class EquipmentResponse(EquipmentBase):
     class Config:
         from_attributes = True
 
-# Cargo Template models
-class CargoTemplate(BaseModel):
-    """Base cargo template model"""
+class Equipment(BaseModel):
     id: Optional[int] = None
     name: str
+    full_name: str
     category: str
+    sub_category: Optional[str] = None
+    type_code: str
     length_cm: float
     width_cm: float
     height_cm: float
-    weight_kg: float
     original_unit: str = "in"
-    original_weight_unit: str = "lb"
-    stackable: bool = True
-    fragile: bool = False
-    non_rotatable: bool = False
+    max_weight_kg: Optional[float] = None
     description: Optional[str] = None
-    typical_quantity: int = 1
-    cost_per_unit: Optional[float] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
     is_active: bool = True
-    usage_count: int = 0
+    is_preset: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
+
+# ==================== CARGO TEMPLATE MODELS ====================
 
 class CargoTemplateBase(BaseModel):
     name: str
@@ -172,26 +214,31 @@ class CargoTemplateResponse(CargoTemplateBase):
     class Config:
         from_attributes = True
 
-# Saved Layout models
-class SavedLayout(BaseModel):
-    """Base saved layout model"""
+class CargoTemplate(BaseModel):
     id: Optional[int] = None
     name: str
+    category: str
+    length_cm: float
+    width_cm: float
+    height_cm: float
+    weight_kg: float
+    original_unit: str = "in"
+    original_weight_unit: str = "lb"
+    stackable: bool = True
+    fragile: bool = False
+    non_rotatable: bool = False
     description: Optional[str] = None
-    equipment_id: int
-    layout_data: str  # JSON string
-    container_dimensions: str  # JSON string
-    total_items: int = 0
-    fitted_items: int = 0
-    efficiency_percentage: float = 0.0
-    total_weight_kg: float = 0.0
-    fitted_weight_kg: float = 0.0
-    is_public: bool = False
+    typical_quantity: int = 1
+    cost_per_unit: Optional[float] = None
+    is_active: bool = True
+    usage_count: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
+
+# ==================== SAVED LAYOUT MODELS ====================
 
 class SavedLayoutCreate(BaseModel):
     name: str
@@ -215,35 +262,45 @@ class SavedLayoutResponse(SavedLayoutCreate):
     class Config:
         from_attributes = True
 
-# ==================== UTILITY AND CONVERSION MODELS ====================
+class SavedLayout(BaseModel):
+    id: Optional[int] = None
+    name: str
+    description: Optional[str] = None
+    equipment_id: int
+    layout_data: str  # JSON string
+    container_dimensions: str  # JSON string
+    total_items: int = 0
+    fitted_items: int = 0
+    efficiency_percentage: float = 0.0
+    total_weight_kg: float = 0.0
+    fitted_weight_kg: float = 0.0
+    is_public: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# ==================== UTILITY MODELS ====================
 
 class ContainerFromEquipment(BaseModel):
-    """Convert equipment to Container model"""
-    
     @staticmethod
     def from_equipment(equipment: Equipment, container_id: str = None) -> Container:
-        """Convert equipment to Container model for optimization"""
-        
-        # Convert dimensions to your Container format (assumes cm input)
         return Container(
             id=container_id or f"equipment-{equipment.id}",
-            type="custom",  # Equipment catalog items are custom types
+            type="custom",
             dimensions=Dimensions(
                 length=equipment.length_cm,
                 width=equipment.width_cm,
                 height=equipment.height_cm
             ),
-            max_weight=equipment.max_weight_kg or 50000,  # Default if not specified
+            max_weight=equipment.max_weight_kg or 50000,
             name=equipment.full_name
         )
 
 class CargoItemFromTemplate(BaseModel):
-    """Convert cargo template to CargoItem model"""
-    
     @staticmethod
     def from_template(template: CargoTemplate, item_id: str = None, quantity: int = 1) -> CargoItem:
-        """Convert template to CargoItem model"""
-        
         return CargoItem(
             id=item_id or f"template-{template.id}-{int(datetime.now().timestamp())}",
             name=template.name,
@@ -258,10 +315,9 @@ class CargoItemFromTemplate(BaseModel):
             fragile=template.fragile
         )
 
-# ==================== FILTER AND SEARCH MODELS ====================
+# ==================== FILTER MODELS ====================
 
 class EquipmentFilter(BaseModel):
-    """Filter parameters for equipment search"""
     category: Optional[str] = None
     sub_category: Optional[str] = None
     min_length: Optional[float] = None
@@ -272,10 +328,9 @@ class EquipmentFilter(BaseModel):
     max_height: Optional[float] = None
     min_payload: Optional[float] = None
     max_payload: Optional[float] = None
-    unit: str = "in"  # Unit for dimension filters
+    unit: str = "in"
 
 class CargoTemplateFilter(BaseModel):
-    """Filter parameters for cargo template search"""
     category: Optional[str] = None
     min_weight: Optional[float] = None
     max_weight: Optional[float] = None
@@ -284,55 +339,43 @@ class CargoTemplateFilter(BaseModel):
     unit: str = "in"
     weight_unit: str = "lb"
 
-# ==================== RESPONSE MODELS FOR API ====================
+# ==================== RESPONSE MODELS ====================
 
 class EquipmentListResponse(BaseModel):
-    """Response for equipment list endpoints"""
     equipment: List[EquipmentResponse]
     total: int
     categories: List[str]
     
 class CargoTemplateListResponse(BaseModel):
-    """Response for cargo template list endpoints"""
     templates: List[CargoTemplateResponse]
     total: int
     categories: List[str]
 
 class SavedLayoutListResponse(BaseModel):
-    """Response for saved layout list endpoints"""
     layouts: List[SavedLayoutResponse]
     total: int
 
-# ==================== STATISTICS AND METADATA ====================
-
 class EquipmentStats(BaseModel):
-    """Equipment catalog statistics"""
     total_equipment: int
     by_category: Dict[str, int]
-    most_used: List[str]  # Equipment type codes
+    most_used: List[str]
     recently_added: List[str]
 
 class SystemStats(BaseModel):
-    """Overall system statistics"""
     equipment_count: int
     template_count: int
     saved_layouts_count: int
     categories: List[str]
     
-# ==================== LEGACY COMPATIBILITY ====================
-
 class LegacyPresetResponse(BaseModel):
-    """Legacy preset format for backward compatibility"""
     presets: Dict[str, Dict[str, Any]]
     
     @staticmethod
     def from_equipment_list(equipment_list: List[Equipment]) -> "LegacyPresetResponse":
-        """Convert equipment list to legacy preset format"""
         presets = {}
         
         for eq in equipment_list:
             if eq.is_preset:
-                # Convert cm back to original units
                 factor = 2.54 if eq.original_unit == "in" else 30.48 if eq.original_unit == "ft" else 1
                 
                 presets[eq.type_code] = {
