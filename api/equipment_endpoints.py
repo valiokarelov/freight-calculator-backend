@@ -1,4 +1,4 @@
-# File: api/equipment_endpoints.py - Final version with smart algorithm
+# File: api/equipment_endpoints.py - Fixed working version
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -16,9 +16,8 @@ from pydantic import BaseModel
 from api.database import get_db
 from api.database_models import EquipmentCatalog, CargoItemTemplate, SavedOptimization
 
-# Import both algorithms
+# Import only the working algorithm
 from algorithms.advanced_packing import advanced_3d_packing
-from algorithms.optimized_packing import volume_optimized_3d_packing
 
 # Import all the models we need
 from api.models import (
@@ -48,39 +47,12 @@ def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)
 
 router = APIRouter(prefix="/api/equipment", tags=["equipment"])
 
-# ==================== SMART ALGORITHM SELECTION ====================
-
-def select_optimal_algorithm(total_items: int, volume_ratio: float) -> str:
-    """
-    Select the best algorithm based on problem characteristics
-    """
-    # Use optimized algorithm for:
-    # 1. Large item counts (more opportunity for optimization)
-    # 2. High volume ratios (need better space utilization)
-    # 3. Medium complexity scenarios
-    
-    if total_items > 30 or volume_ratio > 0.7:
-        return "volume_optimized"
-    elif total_items > 10 and volume_ratio > 0.4:
-        return "volume_optimized"
-    else:
-        return "standard"
-
-def calculate_volume_ratio(container: Container3D, items: List[CargoItem3D]) -> float:
-    """Calculate volume ratio of items to container"""
-    container_volume = container.length * container.width * container.height
-    total_item_volume = sum(
-        item.length * item.width * item.height * item.quantity 
-        for item in items
-    )
-    return total_item_volume / container_volume if container_volume > 0 else 0
-
 # ==================== MAIN PACKING ENDPOINTS ====================
 
 @router.post("/3d-bin-packing", response_model=BinPackingResponse)
 async def calculate_3d_bin_packing(request: BinPackingRequest):
     """
-    Main 3D bin packing endpoint with automatic algorithm selection
+    Main 3D bin packing endpoint using working algorithm
     """
     try:
         start_time = time.time()
@@ -110,29 +82,16 @@ async def calculate_3d_bin_packing(request: BinPackingRequest):
                 non_rotatable=item.non_rotatable or False
             ))
         
-        # Smart algorithm selection
-        volume_ratio = calculate_volume_ratio(container, cargo_items)
-        algorithm_choice = select_optimal_algorithm(total_items, volume_ratio)
+        print(f"Processing {total_items} items with working algorithm")
         
-        print(f"Smart selection: {algorithm_choice} (items: {total_items}, volume_ratio: {volume_ratio:.3f})")
-        
-        # Run selected algorithm
+        # Use the working algorithm
         loop = asyncio.get_event_loop()
-        
-        if algorithm_choice == "volume_optimized":
-            packed_items_3d = await loop.run_in_executor(
-                thread_pool,
-                volume_optimized_3d_packing,
-                container,
-                cargo_items
-            )
-        else:
-            packed_items_3d = await loop.run_in_executor(
-                thread_pool,
-                advanced_3d_packing,
-                container,
-                cargo_items
-            )
+        packed_items_3d = await loop.run_in_executor(
+            thread_pool,
+            advanced_3d_packing,
+            container,
+            cargo_items
+        )
         
         # Convert back to PlacedItem format
         placed_items = []
@@ -163,7 +122,7 @@ async def calculate_3d_bin_packing(request: BinPackingRequest):
         
         processing_time = time.time() - start_time
         
-        print(f"Completed in {processing_time:.2f}s using {algorithm_choice} algorithm")
+        print(f"Completed in {processing_time:.2f}s using advanced_3d_packing algorithm")
         print(f"Results: {len(fitted_items)}/{len(placed_items)} items fitted ({efficiency:.1f}% efficiency)")
         
         return BinPackingResponse(
@@ -179,138 +138,6 @@ async def calculate_3d_bin_packing(request: BinPackingRequest):
     except Exception as e:
         print(f"Error in main packing endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Packing calculation failed: {str(e)}")
-
-@router.post("/3d-bin-packing-force-optimized", response_model=BinPackingResponse)
-async def calculate_3d_bin_packing_force_optimized(request: BinPackingRequest):
-    """
-    Force use of optimized algorithm (for testing)
-    """
-    try:
-        start_time = time.time()
-        
-        container = Container3D(
-            length=request.container.length,
-            width=request.container.width,
-            height=request.container.height,
-            max_weight=request.container.max_weight or 50000
-        )
-        
-        cargo_items = []
-        for item in request.items:
-            cargo_items.append(CargoItem3D(
-                id=item.id, name=item.name,
-                length=item.length, width=item.width, height=item.height,
-                weight=item.weight, quantity=item.quantity,
-                non_stackable=item.non_stackable or False,
-                non_rotatable=item.non_rotatable or False
-            ))
-        
-        # Force optimized algorithm
-        loop = asyncio.get_event_loop()
-        packed_items_3d = await loop.run_in_executor(
-            thread_pool,
-            volume_optimized_3d_packing,
-            container,
-            cargo_items
-        )
-        
-        # Convert back to PlacedItem format
-        placed_items = []
-        for item in packed_items_3d:
-            placed_items.append(PlacedItem(
-                id=item.id, name=item.name,
-                length=item.length, width=item.width, height=item.height,
-                weight=item.weight, x=item.x, y=item.y, z=item.z,
-                fitted=item.fitted, non_stackable=item.non_stackable,
-                non_rotatable=item.non_rotatable
-            ))
-        
-        # Calculate statistics
-        fitted_items = [item for item in placed_items if item.fitted]
-        total_weight = sum(item.weight for item in placed_items)
-        fitted_weight = sum(item.weight for item in fitted_items)
-        
-        container_volume = container.length * container.width * container.height
-        used_volume = sum(item.length * item.width * item.height for item in fitted_items)
-        efficiency = (used_volume / container_volume * 100) if container_volume > 0 else 0
-        
-        processing_time = time.time() - start_time
-        
-        return BinPackingResponse(
-            placed_items=placed_items,
-            total_items=len(placed_items),
-            fitted_items=len(fitted_items),
-            efficiency=round(efficiency, 2),
-            total_weight=round(total_weight, 2),
-            fitted_weight=round(fitted_weight, 2),
-            processing_time=round(processing_time, 2)
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forced optimized packing failed: {str(e)}")
-
-@router.post("/3d-bin-packing-force-basic", response_model=BinPackingResponse)
-async def calculate_3d_bin_packing_force_basic(request: BinPackingRequest):
-    """
-    Force use of basic algorithm (for comparison)
-    """
-    try:
-        container = Container3D(
-            length=request.container.length,
-            width=request.container.width,
-            height=request.container.height,
-            max_weight=request.container.max_weight or 50000
-        )
-        
-        cargo_items = []
-        for item in request.items:
-            cargo_items.append(CargoItem3D(
-                id=item.id, name=item.name,
-                length=item.length, width=item.width, height=item.height,
-                weight=item.weight, quantity=item.quantity,
-                non_stackable=item.non_stackable or False,
-                non_rotatable=item.non_rotatable or False
-            ))
-        
-        # Force basic algorithm
-        loop = asyncio.get_event_loop()
-        packed_items_3d = await loop.run_in_executor(
-            thread_pool,
-            advanced_3d_packing,
-            container,
-            cargo_items
-        )
-        
-        # Convert and return (same as above)
-        placed_items = []
-        for item in packed_items_3d:
-            placed_items.append(PlacedItem(
-                id=item.id, name=item.name,
-                length=item.length, width=item.width, height=item.height,
-                weight=item.weight, x=item.x, y=item.y, z=item.z,
-                fitted=item.fitted, non_stackable=item.non_stackable,
-                non_rotatable=item.non_rotatable
-            ))
-        
-        fitted_items = [item for item in placed_items if item.fitted]
-        total_weight = sum(item.weight for item in placed_items)
-        fitted_weight = sum(item.weight for item in fitted_items)
-        
-        container_volume = container.length * container.width * container.height
-        used_volume = sum(item.length * item.width * item.height for item in fitted_items)
-        efficiency = (used_volume / container_volume * 100) if container_volume > 0 else 0
-        
-        return BinPackingResponse(
-            placed_items=placed_items,
-            total_items=len(placed_items),
-            fitted_items=len(fitted_items),
-            efficiency=round(efficiency, 2),
-            total_weight=round(total_weight, 2),
-            fitted_weight=round(fitted_weight, 2)
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forced basic packing failed: {str(e)}")
 
 # ==================== DEBUG AND TEST ENDPOINTS ====================
 
@@ -373,7 +200,6 @@ async def optimize_3d_packing(request: PackingRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Packing calculation failed: {str(e)}")
 
-# [All your existing equipment/cargo/layout endpoints remain the same]
 # ==================== EQUIPMENT ENDPOINTS ====================
 
 @router.get("/containers", response_model=List[EquipmentResponse])
@@ -393,6 +219,243 @@ async def get_all_equipment(
     
     equipment = query.order_by(EquipmentCatalog.category, EquipmentCatalog.name).all()
     return [EquipmentResponse.model_validate(eq) for eq in equipment]
+
+@router.get("/containers/{equipment_id}", response_model=EquipmentResponse)
+async def get_equipment_by_id(equipment_id: int, db: Session = Depends(get_db)):
+    """Get specific equipment by ID"""
+    equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    return EquipmentResponse.model_validate(equipment)
+
+@router.get("/containers/code/{type_code}", response_model=EquipmentResponse)
+async def get_equipment_by_code(type_code: str, db: Session = Depends(get_db)):
+    """Get equipment by type code (for backward compatibility)"""
+    equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.type_code == type_code).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    return EquipmentResponse.model_validate(equipment)
+
+@router.post("/containers", response_model=EquipmentResponse)
+async def create_custom_equipment(
+    equipment_data: EquipmentCreate, 
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """Create custom equipment/container"""
+    
+    # Check if type_code already exists
+    existing = db.query(EquipmentCatalog).filter(EquipmentCatalog.type_code == equipment_data.type_code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Type code already exists")
+    
+    # Calculate volume
+    volume = equipment_data.length_cm * equipment_data.width_cm * equipment_data.height_cm
+    
+    # Create equipment
+    equipment = EquipmentCatalog(
+        **equipment_data.model_dump(),
+        volume_cubic_cm=volume,
+        is_preset=False,
+        is_active=True
+    )
+    
+    db.add(equipment)
+    db.commit()
+    db.refresh(equipment)
+    
+    return EquipmentResponse.model_validate(equipment)
+
+@router.put("/containers/{equipment_id}", response_model=EquipmentResponse) 
+async def update_equipment(
+    equipment_id: int,
+    equipment_data: EquipmentBase,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """Update equipment (only custom equipment can be modified)"""
+    equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    if equipment.is_preset:
+        raise HTTPException(status_code=400, detail="Cannot modify preset equipment")
+    
+    # Update fields
+    for field, value in equipment_data.model_dump(exclude_unset=True).items():
+        setattr(equipment, field, value)
+    
+    # Recalculate volume
+    equipment.volume_cubic_cm = equipment.length_cm * equipment.width_cm * equipment.height_cm
+    equipment.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(equipment)
+    
+    return EquipmentResponse.model_validate(equipment)
+
+@router.delete("/containers/{equipment_id}")
+async def delete_equipment(
+    equipment_id: int, 
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """Delete custom equipment (soft delete by setting inactive)"""
+    equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    if equipment.is_preset:
+        raise HTTPException(status_code=400, detail="Cannot delete preset equipment")
+    
+    equipment.is_active = False
+    equipment.updated_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Equipment deleted successfully"}
+
+# ==================== CARGO TEMPLATE ENDPOINTS ====================
+
+@router.get("/cargo-templates", response_model=List[CargoTemplateResponse])
+async def get_cargo_templates(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    db: Session = Depends(get_db)
+):
+    """Get all cargo templates"""
+    query = db.query(CargoItemTemplate).filter(CargoItemTemplate.is_active == True)
+    
+    if category:
+        query = query.filter(CargoItemTemplate.category == category)
+    
+    templates = query.order_by(CargoItemTemplate.usage_count.desc(), CargoItemTemplate.name).all()
+    return [CargoTemplateResponse.model_validate(template) for template in templates]
+
+@router.post("/cargo-templates", response_model=CargoTemplateResponse)
+async def create_cargo_template(
+    template_data: CargoTemplateBase,
+    db: Session = Depends(get_db)
+):
+    """Create new cargo template"""
+    template = CargoItemTemplate(**template_data.model_dump())
+    
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    
+    return CargoTemplateResponse.model_validate(template)
+
+@router.put("/cargo-templates/{template_id}/use")
+async def increment_template_usage(template_id: int, db: Session = Depends(get_db)):
+    """Increment usage count when template is used"""
+    template = db.query(CargoItemTemplate).filter(CargoItemTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    template.usage_count += 1
+    db.commit()
+    
+    return {"message": "Usage count updated"}
+
+# ==================== SAVED LAYOUTS ENDPOINTS ====================
+
+@router.get("/saved-layouts", response_model=List[SavedLayoutResponse])
+async def get_saved_layouts(
+    equipment_id: Optional[int] = Query(None, description="Filter by equipment"),
+    public_only: bool = Query(False, description="Show only public layouts"),
+    db: Session = Depends(get_db)
+):
+    """Get saved layouts"""
+    query = db.query(SavedOptimization).join(EquipmentCatalog)
+    
+    if equipment_id:
+        query = query.filter(SavedOptimization.equipment_id == equipment_id)
+    
+    if public_only:
+        query = query.filter(SavedOptimization.is_public == True)
+    
+    layouts = query.order_by(SavedOptimization.created_at.desc()).all()
+    
+    # Add equipment name to response
+    result = []
+    for layout in layouts:
+        layout_dict = {
+            **layout.__dict__,
+            "equipment_name": layout.equipment.name
+        }
+        result.append(SavedLayoutResponse(**layout_dict))
+    
+    return result
+
+@router.post("/saved-layouts", response_model=SavedLayoutResponse)
+async def save_layout(layout_data: SavedLayoutCreate, db: Session = Depends(get_db)):
+    """Save a cargo layout"""
+    
+    # Verify equipment exists
+    equipment = db.query(EquipmentCatalog).filter(EquipmentCatalog.id == layout_data.equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    
+    # Validate JSON data
+    try:
+        json.loads(layout_data.layout_data)
+        json.loads(layout_data.container_dimensions)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON data")
+    
+    layout = SavedOptimization(**layout_data.model_dump())
+    
+    db.add(layout)
+    db.commit()
+    db.refresh(layout)
+    
+    # Add equipment name for response
+    layout_dict = {
+        **layout.__dict__,
+        "equipment_name": equipment.name
+    }
+    
+    return SavedLayoutResponse(**layout_dict)
+
+@router.get("/saved-layouts/{layout_id}", response_model=SavedLayoutResponse)
+async def get_saved_layout(layout_id: int, db: Session = Depends(get_db)):
+    """Get specific saved layout"""
+    layout = db.query(SavedOptimization).filter(SavedOptimization.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    
+    layout_dict = {
+        **layout.__dict__,
+        "equipment_name": layout.equipment.name
+    }
+    
+    return SavedLayoutResponse(**layout_dict)
+
+@router.delete("/saved-layouts/{layout_id}")
+async def delete_saved_layout(layout_id: int, db: Session = Depends(get_db)):
+    """Delete saved layout"""
+    layout = db.query(SavedOptimization).filter(SavedOptimization.id == layout_id).first()
+    if not layout:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    
+    db.delete(layout)
+    db.commit()
+    
+    return {"message": "Layout deleted successfully"}
+
+# ==================== UTILITY ENDPOINTS ====================
+
+@router.get("/categories")
+async def get_equipment_categories(db: Session = Depends(get_db)):
+    """Get all equipment categories"""
+    categories = db.query(EquipmentCatalog.category).distinct().all()
+    return [cat[0] for cat in categories]
+
+@router.get("/cargo-categories")
+async def get_cargo_categories(db: Session = Depends(get_db)):
+    """Get all cargo template categories"""
+    categories = db.query(CargoItemTemplate.category).distinct().all()
+    return [cat[0] for cat in categories]
 
 # Legacy compatibility endpoint
 @router.get("/presets")
